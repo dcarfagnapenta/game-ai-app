@@ -58,6 +58,7 @@ def configuro_agente_videogiochi(user_id: str):
         groq_api_key=CHIAVE_GROQ
     )
     
+    
     cronologia_utente_db = ottieni_profilo_utente(user_id)
     tools = [cerca_sul_web, aggiorna_preferenze_database]
     

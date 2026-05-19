@@ -57,6 +57,7 @@ async def chat(request: MessaggioUtente):
         # 4. Risposta diretta senza tool
         return {"risposta": risposta_modello.content}
 
+
     except Exception as e:
         print(f"[-] Errore server: {str(e)}")
         return {"risposta": f"Pixel ha avuto un piccolo glitch: {str(e)}"}
