@@ -12,7 +12,7 @@
           <rect x="77" y="42" width="10" height="22" rx="4" fill="#00ff9d" />
         </svg>
         <div class="title-text">
-          <h1>PIXEL</h1>
+          <h1>PIXEL </h1>
           <span class="status-badge">
             <span class="pulse-dot"></span> ONLINE
           </span>
