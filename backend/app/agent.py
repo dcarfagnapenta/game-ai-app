@@ -10,14 +10,8 @@ from app.database import salva_o_aggiorna_gioco, ottieni_profilo_utente
 
 load_dotenv()
 
-# Definiamo la chiave API fissa per evitare i glitch dei riavvii
 CHIAVE_GROQ = os.environ.get("GROQ_API_KEY")
-def configuro_agente_videogiochi(user_id: str):
-    llm = ChatGroq(
-        model="llama-3.3-70b-versatile", 
-        temperature=0.2, 
-        groq_api_key=CHIAVE_GROQ  # Ora usa la variabile recuperata dinamicamente
-    )
+
 @tool
 def cerca_sul_web(query: str):
     """
@@ -52,17 +46,16 @@ def aggiorna_preferenze_database(user_id: str, titolo_gioco: str, completato: bo
         return "Impossibile aggiornare il database al momento."
 
 def configuro_agente_videogiochi(user_id: str):
+    # Passiamo al modello 8B: ultra rapido e tollerante con i limiti di token
     llm = ChatGroq(
-        model="llama-3.3-70b-versatile", 
+        model="llama-3.1-8b-instant", 
         temperature=0.5,
         groq_api_key=CHIAVE_GROQ
     )
     
-    
     cronologia_utente_db = ottieni_profilo_utente(user_id)
     tools = [cerca_sul_web, aggiorna_preferenze_database]
     
-    # Inserito MessagesPlaceholder per la cronologia chat di LangChain!
     prompt = ChatPromptTemplate.from_messages([
         ("system", (
             "Sei Pixel, un gamer esperto, appassionato e super diretto. Parli come un amico su Discord. "
@@ -80,12 +73,32 @@ def configuro_agente_videogiochi(user_id: str):
     llm_con_tools = llm.bind_tools(tools)
     catena_base = prompt | llm_con_tools
     
-    # Colleghiamo un database SQLite locale per registrare i messaggi passati automaticamente
+    # Intercettore della cronologia per evitare la saturazione dei token
     def prendi_cronologia_chat(session_id: str):
-        return SQLChatMessageHistory(
+        storia_completa = SQLChatMessageHistory(
             session_id=f"chat_{session_id}",
             connection="sqlite:///database.db"
         )
+        
+        tutti_i_messaggi = storia_completa.messages
+        
+        # Se ci sono più di 6 messaggi in totale nella sessione, creiamo una finestra scorrevole
+        if len(tutti_i_messaggi) > 6:
+            messaggi_filtrati = tutti_i_messaggi[-6:] # Teniamo solo gli ultimi 6
+            
+            # Creiamo un oggetto temporaneo "pulito" da passare a LangChain per questa chiamata
+            storia_ottimizzata = SQLChatMessageHistory(
+                session_id=f"temp_{session_id}", 
+                connection="sqlite:///database.db"
+            )
+            storia_ottimizzata.clear() # Ci assicuriamo che sia vuoto
+            
+            for msg in messaggi_filtrati:
+                storia_ottimizzata.add_message(msg)
+                
+            return storia_ottimizzata
+            
+        return storia_completa
     
     catena_con_memoria = RunnableWithMessageHistory(
         catena_base,

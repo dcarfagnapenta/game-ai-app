@@ -1,7 +1,9 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from app.agent import configuro_agente_videogiochi
+from langchain_groq import ChatGroq
 
 app = FastAPI()
 
@@ -20,7 +22,7 @@ class MessaggioUtente(BaseModel):
 @app.post("/chat")
 async def chat(request: MessaggioUtente):
     try:
-        # 1. Recupera la catena (con memoria integrata) e la lista dei tools
+        # 1. Recupera la catena (con memoria ottimizzata) e la lista dei tools
         catena, tools = configuro_agente_videogiochi(request.user_id)
         
         # 2. Invoca il modello passando l'input e la configurazione della sessione per il DB
@@ -48,17 +50,20 @@ async def chat(request: MessaggioUtente):
                     "Usa le tue conoscenze personali per dare una risposta eccellente, sicura e immediata."
                 )
                 
-                from langchain_groq import ChatGroq
-                import os
-                llm_finale = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=os.getenv("GROQ_API_KEY"), temperature=0.6)
+                # Usiamo l'8B anche qui per garantire stabilità assoluta
+                llm_finale = ChatGroq(
+                    model="llama-3.1-8b-instant", 
+                    groq_api_key=os.getenv("GROQ_API_KEY"), 
+                    temperature=0.6
+                )
                 
                 risposta_finale = llm_finale.invoke(prompt_riassunto)
                 
                 return {"risposta": risposta_finale.content}
         
-        # 4. Risposta diretta senza tool (la memoria è già inclusa nella risposta_modello)
+        # 4. Risposta diretta senza tool
         return {"risposta": risposta_modello.content}
 
     except Exception as e:
         print(f"[-] Errore server: {str(e)}")
-        return {"risposta": f"Rufus ha avuto un piccolo glitch: {str(e)}"}
+        return {"risposta": f"Pixel ha avuto un piccolo glitch: {str(e)}"}
