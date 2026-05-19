@@ -25,13 +25,13 @@ async def chat(request: MessaggioUtente):
         # 1. Recupera la catena (con memoria ottimizzata) e la lista dei tools
         catena, tools = configuro_agente_videogiochi(request.user_id)
         
-        # 2. Invoca il modello passando l'input e la configurazione della sessione per il DB
+        # 2. Invoca il modello passando l'input e la configurazione della sessione
         risposta_modello = catena.invoke(
             {"input": request.text},
             config={"configurable": {"session_id": request.user_id}}
         )
         
-        # 3. Controlla se il modello vuole usare un Tool (es. ricerca web)
+        # 3. Gestione se il modello decide di usare un Tool (es. ricerca web)
         if hasattr(risposta_modello, "tool_calls") and risposta_modello.tool_calls:
             mapping_tools = {t.name: t for t in tools}
             
@@ -39,29 +39,32 @@ async def chat(request: MessaggioUtente):
                 nome_tool = tool_call["name"]
                 argomenti = tool_call["args"]
                 
+                # Esegue fisicamente il tool (es. cerca su DuckDuckGo)
                 risultato_tool = mapping_tools[nome_tool].invoke(argomenti)
                 
-                # Prompt per la risposta finale testuale pulita, sicura e coerente
+               # Sostituisci questo blocco nel tuo main.py:
                 prompt_riassunto = (
                     f"L'utente ha chiesto: '{request.text}'.\n"
                     f"Il tool '{nome_tool}' ha restituito questi dati:\n{risultato_tool}\n\n"
-                    "Genera una risposta finale esaustiva, amichevole e in italiano. "
-                    "Se i dati del tool indicano che non ci sono risultati o sono scarsi, non dire che c'è stato un errore! "
-                    "Usa le tue conoscenze personali per dare una risposta eccellente, sicura e immediata."
+                    "REGOLE RIGIDE PER LA RISPOSTA:\n"
+                    "1. Genera una risposta finale esaustiva, amichevole e in italiano.\n"
+                    "2. IMPORTANTE: Se i dati del tool sono scarsi, vuoti o non menzionano il gioco, NON farti influenzare! "
+                    "Usa subito la tua conoscenza interna per rispondere correttamente (es. se riconosci una citazione famosa come quella di Ezio Auditore in Assassin's Creed, dillo subito!).\n"
+                    "3. Mantieni lo stile di Pixel (gamer su Discord), sii diretto e non inventare mai fake-news o personaggi inesistenti."
                 )
                 
-                # Usiamo l'8B anche qui per garantire stabilità assoluta
+                # Usiamo lo stesso modello stabile 8B per l'output finale
                 llm_finale = ChatGroq(
                     model="llama-3.1-8b-instant", 
                     groq_api_key=os.getenv("GROQ_API_KEY"), 
-                    temperature=0.6
+                    temperature=0.4
                 )
                 
                 risposta_finale = llm_finale.invoke(prompt_riassunto)
                 
                 return {"risposta": risposta_finale.content}
         
-        # 4. Risposta diretta senza tool
+        # 4. Risposta diretta senza l'uso dei tool
         return {"risposta": risposta_modello.content}
 
     except Exception as e:

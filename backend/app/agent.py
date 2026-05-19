@@ -10,7 +10,12 @@ from app.database import salva_o_aggiorna_gioco, ottieni_profilo_utente
 
 load_dotenv()
 
+# Recupera la chiave API globale
 CHIAVE_GROQ = os.environ.get("GROQ_API_KEY")
+
+# ==========================================
+# 1. DEFINIZIONE DEI TOOL (STRUMENTI)
+# ==========================================
 
 @tool
 def cerca_sul_web(query: str):
@@ -45,14 +50,20 @@ def aggiorna_preferenze_database(user_id: str, titolo_gioco: str, completato: bo
     except:
         return "Impossibile aggiornare il database al momento."
 
+
+# ==========================================
+# 2. FUNZIONE PRINCIPALE DI CONFIGURAZIONE
+# ==========================================
+
 def configuro_agente_videogiochi(user_id: str):
-    # Passiamo al modello 8B: ultra rapido e tollerante con i limiti di token
+    # Modello 8B: stabile, leggero e con limiti di token altissimi per evitare l'errore 429
     llm = ChatGroq(
         model="llama-3.1-8b-instant", 
         temperature=0.5,
         groq_api_key=CHIAVE_GROQ
     )
     
+    # Recupera i ricordi a lungo termine dal DB
     cronologia_utente_db = ottieni_profilo_utente(user_id)
     tools = [cerca_sul_web, aggiorna_preferenze_database]
     
@@ -73,7 +84,7 @@ def configuro_agente_videogiochi(user_id: str):
     llm_con_tools = llm.bind_tools(tools)
     catena_base = prompt | llm_con_tools
     
-    # Intercettore della cronologia per evitare la saturazione dei token
+    # Gestione della memoria ottimizzata (Sliding Window a 6 messaggi)
     def prendi_cronologia_chat(session_id: str):
         storia_completa = SQLChatMessageHistory(
             session_id=f"chat_{session_id}",
@@ -82,16 +93,15 @@ def configuro_agente_videogiochi(user_id: str):
         
         tutti_i_messaggi = storia_completa.messages
         
-        # Se ci sono più di 6 messaggi in totale nella sessione, creiamo una finestra scorrevole
+        # Se superiamo i 6 messaggi (3 botta e risposta), creiamo una finestra scorrevole
         if len(tutti_i_messaggi) > 6:
-            messaggi_filtrati = tutti_i_messaggi[-6:] # Teniamo solo gli ultimi 6
+            messaggi_filtrati = tutti_i_messaggi[-6:]
             
-            # Creiamo un oggetto temporaneo "pulito" da passare a LangChain per questa chiamata
             storia_ottimizzata = SQLChatMessageHistory(
                 session_id=f"temp_{session_id}", 
                 connection="sqlite:///database.db"
             )
-            storia_ottimizzata.clear() # Ci assicuriamo che sia vuoto
+            storia_ottimizzata.clear()
             
             for msg in messaggi_filtrati:
                 storia_ottimizzata.add_message(msg)
