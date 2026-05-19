@@ -1,0 +1,53 @@
+# ==========================================
+# FILE DI SISTEMA ED EDITORS (Root / Generici)
+# ==========================================
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==========================================
+# BACKEND (FastAPI / Python)
+# ==========================================
+# Il tuo ambiente virtuale (FONDAMENTALE non pusharlo!)
+backend/venv/
+backend/.venv/
+backend/env/
+
+# Cache di Python e file compilati
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+backend/.pytest_cache/
+backend/.mypy_cache/
+
+# File di configurazione locale e segreti (Le tue API KEY di Groq!)
+backend/.env
+backend/local_settings.py
+
+# ==========================================
+# FRONTEND (Vue.js / Node)
+# ==========================================
+# Dipendenze Node (FONDAMENTALE non pusharle!)
+frontend/node_modules/
+
+# Cartelle di build/output
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+
+# Log di Node e Vite
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
+# File di ambiente locale del frontend
+frontend/.env.local
+frontend/.env.*.local
