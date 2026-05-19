@@ -51,3 +51,4 @@ frontend/pnpm-debug.log*
 # File di ambiente locale del frontend
 frontend/.env.local
 frontend/.env.*.local
+node_modules
