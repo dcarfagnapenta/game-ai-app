@@ -59,6 +59,19 @@
         </button>
       </form>
     </footer>
+
+    <!-- <footer class="developer-footer">
+  <p>
+    Sviluppato da 
+    <a 
+      href="https://linkedin.com/in/TUO-LINKEDIN"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      Daniele Carfagna
+    </a>
+  </p>
+</footer> -->
   </div>
 </template>
 
@@ -112,6 +125,31 @@ const inviaMessaggio = async () => {
 </script>
 
 <style scoped>
+/* Footer sviluppatore */
+.developer-footer {
+  text-align: center;
+  padding: 10px;
+  background-color: #111126;
+  border-top: 1px solid #1f1f42;
+}
+
+.developer-footer p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #a0aec0;
+}
+
+.developer-footer a {
+  color: #00ff9d;
+  text-decoration: none;
+  font-weight: bold;
+  transition: 0.3s;
+}
+
+.developer-footer a:hover {
+  color: white;
+  text-shadow: 0 0 8px #00ff9d;
+}
 /* Reset e Stile Base del Contenitore (Tema Dark/Cyberpunk) */
 .app-container {
   display: flex;

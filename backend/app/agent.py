@@ -1,120 +1,248 @@
+# =========================================================
+# agent.py
+# =========================================================
+
 import os
+
+from dotenv import load_dotenv
+
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_community.chat_message_histories import SQLChatMessageHistory
+
+from langchain_community.chat_message_histories import (
+    SQLChatMessageHistory
+)
+
 from duckduckgo_search import DDGS
-from dotenv import load_dotenv
-from app.database import salva_o_aggiorna_gioco, ottieni_profilo_utente
+
+from app.database import (
+    salva_o_aggiorna_gioco,
+    ottieni_profilo_utente
+)
 
 load_dotenv()
 
-# Recupera la chiave API globale
-CHIAVE_GROQ = os.environ.get("GROQ_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# ==========================================
-# 1. DEFINIZIONE DEI TOOL (STRUMENTI)
-# ==========================================
+
+# =========================================================
+# TOOL WEB
+# =========================================================
 
 @tool
-def cerca_sul_web(query: str):
+def cerca_sul_web(query: str) -> str:
     """
-    Usa questo strumento per cercare sul web informazioni in tempo reale su videogiochi,
-    prezzi, recensioni, uscite recenti o consigli. Scrivi query di ricerca sensate.
+    Cerca informazioni RECENTI sui videogiochi.
+
+    Usare SOLO per:
+    - news
+    - prezzi
+    - patch
+    - update
+    - date uscita
     """
+
     try:
-        query_pulita = query.replace('"', '').replace("'", "")
+
         with DDGS() as ddgs:
-            risultati = [r for r in ddgs.text(query_pulita, max_results=3)]
-            if not risultati:
-                return "Nessun risultato specifico trovato sul web."
-            
-            testo_risultati = ""
-            for r in risultati:
-                testo_risultati += f"Titolo: {r['title']}\nContenuto: {r['body']}\n\n"
-            return testo_risultati
+
+            risultati = list(
+                ddgs.text(query, max_results=2)
+            )
+
+        if not risultati:
+            return "Nessun risultato trovato."
+
+        testo = ""
+
+        for r in risultati:
+
+            titolo = r.get("title", "")
+            body = r.get("body", "")
+
+            testo += (
+                f"{titolo}\n"
+                f"{body}\n\n"
+            )
+
+        return testo
+
     except Exception as e:
-        return "Errore temporaneo di connessione al web. Usa la tua conoscenza interna dei giochi per rispondere."
+
+        return f"Errore ricerca web: {str(e)}"
+
+
+# =========================================================
+# TOOL DATABASE
+# =========================================================
 
 @tool
-def aggiorna_preferenze_database(user_id: str, titolo_gioco: str, completato: bool = None, piaciuto: str = None):
+def aggiorna_preferenze_database(
+    user_id: str,
+    titolo_gioco: str,
+    completato: bool = None,
+    voto: str = None
+) -> str:
     """
-    Usa questo strumento per aggiornare il database quando l'utente rivela se ha giocato, 
-    finito o abbandonato un gioco.
+    Salva preferenze gaming utente.
     """
+
     try:
-        comp_int = 1 if completato is True else (0 if completato is False else None)
-        salva_o_aggiorna_gioco(user_id, titolo_gioco, completato=comp_int, voto=piaciuto)
-        return f"Database aggiornato per il gioco {titolo_gioco}."
-    except:
-        return "Impossibile aggiornare il database al momento."
+
+        completato_int = None
+
+        if completato is True:
+            completato_int = 1
+
+        elif completato is False:
+            completato_int = 0
+
+        salva_o_aggiorna_gioco(
+            user_id=user_id,
+            titolo_gioco=titolo_gioco,
+            completato=completato_int,
+            voto=voto
+        )
+
+        return f"Preferenze salvate per {titolo_gioco}"
+
+    except Exception as e:
+
+        return f"Errore database: {str(e)}"
 
 
-# ==========================================
-# 2. FUNZIONE PRINCIPALE DI CONFIGURAZIONE
-# ==========================================
+# =========================================================
+# MEMORIA CHAT
+# =========================================================
+
+def get_memoria(user_id: str):
+
+    return SQLChatMessageHistory(
+        session_id=f"chat_{user_id}",
+        connection="sqlite:///database.db"
+    )
+
+
+# =========================================================
+# MODELLO
+# =========================================================
+
+def get_llm():
+
+    return ChatGroq(
+        model="llama-3.3-70b-versatile",
+        temperature=0.15,
+        timeout=18,
+        max_retries=2,
+        max_tokens=190,
+        groq_api_key=GROQ_API_KEY
+    )
+
+
+# =========================================================
+# CONFIG AGENTE
+# =========================================================
 
 def configuro_agente_videogiochi(user_id: str):
-    # Modello 8B: stabile, leggero e con limiti di token altissimi per evitare l'errore 429
-    llm = ChatGroq(
-        model="llama-3.1-8b-instant", 
-        temperature=0.5,
-        groq_api_key=CHIAVE_GROQ
-    )
-    
-    # Recupera i ricordi a lungo termine dal DB
-    cronologia_utente_db = ottieni_profilo_utente(user_id)
-    tools = [cerca_sul_web, aggiorna_preferenze_database]
-    
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", (
-            "Sei Pixel, un gamer esperto, appassionato e super diretto. Parli come un amico su Discord. "
-            "Evita risposte robotiche, presentazioni fisse da assistente o elenchi da enciclopedia.\n\n"
-            f"Ecco il profilo storico dei giochi preferiti dell'utente (dal DB): {cronologia_utente_db}\n\n"
-            "REGOLE DI CONVERSAZIONE:\n"
-            "1. Sii conciso e vai dritto al punto.\n"
-            "2. Guarda sempre la cronologia della chat precedente! Se l'utente ti fa una domanda legata al messaggio prima (es. 'fa paura?'), "
-            "tu sai che si riferisce all'ultimo gioco di cui avete appena parlato. Mantieni il contesto vivo!"
-        )),
-        MessagesPlaceholder(variable_name="history"),
-        ("human", "{input}"),
-    ])
-    
-    llm_con_tools = llm.bind_tools(tools)
-    catena_base = prompt | llm_con_tools
-    
-    # Gestione della memoria ottimizzata (Sliding Window a 6 messaggi)
-    def prendi_cronologia_chat(session_id: str):
-        storia_completa = SQLChatMessageHistory(
-            session_id=f"chat_{session_id}",
-            connection="sqlite:///database.db"
-        )
-        
-        tutti_i_messaggi = storia_completa.messages
-        
-        # Se superiamo i 6 messaggi (3 botta e risposta), creiamo una finestra scorrevole
-        if len(tutti_i_messaggi) > 6:
-            messaggi_filtrati = tutti_i_messaggi[-6:]
-            
-            storia_ottimizzata = SQLChatMessageHistory(
-                session_id=f"temp_{session_id}", 
-                connection="sqlite:///database.db"
-            )
-            storia_ottimizzata.clear()
-            
-            for msg in messaggi_filtrati:
-                storia_ottimizzata.add_message(msg)
-                
-            return storia_ottimizzata
-            
-        return storia_completa
-    
-    catena_con_memoria = RunnableWithMessageHistory(
-        catena_base,
-        prendi_cronologia_chat,
-        input_messages_key="input",
-        history_messages_key="history"
-    )
-    
-    return catena_con_memoria, tools
+
+    llm = get_llm()
+
+    memoria = get_memoria(user_id)
+
+    profilo_utente = ottieni_profilo_utente(user_id)
+
+    tools = {
+        "cerca_sul_web": cerca_sul_web,
+        "aggiorna_preferenze_database":
+            aggiorna_preferenze_database
+    }
+
+    system_prompt = f"""
+Sei Pixel.
+
+Un gamer esperto che parla come un amico su Discord.
+
+Tono:
+- naturale
+- diretto
+- rilassato
+- competente
+
+NON sembrare ChatGPT.
+
+PROFILO UTENTE:
+{profilo_utente}
+
+REGOLE:
+
+Ricorda:
+- giochi amati
+- giochi odiati
+- giochi completati
+
+Se l'utente parla delle sue preferenze:
+usa aggiorna_preferenze_database.
+
+Usa cerca_sul_web SOLO per:
+- news
+- prezzi
+- patch
+- date uscita
+
+NON usarlo per domande gaming normali.
+
+NON inventare informazioni false.
+
+Se conosci pochi esempi corretti:
+- fermati
+- non inventare altri giochi
+- non allargare il significato della domanda
+
+Meglio pochi esempi accurati
+che tanti esempi sbagliati.
+
+Se parli di ambientazioni:
+- fai attenzione alla città precisa
+- non confondere sequel o capitoli diversi
+- meglio dire "non ricordo con certezza"
+che inventare dettagli sbagliati
+
+Se non sei sicuro:
+- dichiaralo
+- ragiona insieme all'utente
+
+Se l'utente chiede:
+"altri"
+
+non sentirti obbligato
+a trovare nuovi esempi a tutti i costi.
+
+Puoi anche dire:
+- che gli esempi famosi finiscono lì
+- che ci sono pochi giochi davvero noti
+- che altri casi sono marginali
+
+Quando consigli giochi:
+- pochi giochi
+- niente liste infinite
+- evita giochi fuori piattaforma
+- rispetta il genere richiesto
+
+Per gli shooter:
+- principalmente FPS/TPS
+
+Parla come un gamer reale.
+
+Evita frasi tipo:
+- grafica incredibile
+- gameplay emozionante
+- esperienza immersiva
+
+NON mostrare:
+- tool_calls
+- json
+- codice
+- function calls
+"""
+
+    return llm, memoria, tools, system_prompt

@@ -1,11 +1,35 @@
-import os
+# =========================================================
+# MAIN.PY
+# =========================================================
+
 from fastapi import FastAPI
+
 from fastapi.middleware.cors import CORSMiddleware
+
 from pydantic import BaseModel
-from app.agent import configuro_agente_videogiochi
-from langchain_groq import ChatGroq
+
+from langchain_core.messages import (
+    HumanMessage,
+    AIMessage,
+    SystemMessage,
+    ToolMessage
+)
+
+from app.agent import (
+    configuro_agente_videogiochi
+)
+
+
+# =========================================================
+# FASTAPI
+# =========================================================
 
 app = FastAPI()
+
+
+# =========================================================
+# CORS
+# =========================================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,58 +39,205 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# =========================================================
+# REQUEST
+# =========================================================
+
 class MessaggioUtente(BaseModel):
+
     user_id: str
     text: str
 
+
+# =========================================================
+# CHAT
+# =========================================================
+
 @app.post("/chat")
 async def chat(request: MessaggioUtente):
+
     try:
-        # 1. Recupera la catena (con memoria ottimizzata) e la lista dei tools
-        catena, tools = configuro_agente_videogiochi(request.user_id)
-        
-        # 2. Invoca il modello passando l'input e la configurazione della sessione
-        risposta_modello = catena.invoke(
-            {"input": request.text},
-            config={"configurable": {"session_id": request.user_id}}
+
+        # =====================================================
+        # CONFIG AGENTE
+        # =====================================================
+
+        llm, memoria, tools, system_prompt = (
+            configuro_agente_videogiochi(
+                request.user_id
+            )
         )
-        
-        # 3. Gestione se il modello decide di usare un Tool (es. ricerca web)
-        if hasattr(risposta_modello, "tool_calls") and risposta_modello.tool_calls:
-            mapping_tools = {t.name: t for t in tools}
-            
-            for tool_call in risposta_modello.tool_calls:
+
+        # =====================================================
+        # MESSAGGI CHAT
+        # =====================================================
+
+        messaggi = []
+
+        # SYSTEM PROMPT
+
+        messaggi.append(
+
+            SystemMessage(
+                content=system_prompt
+            )
+        )
+
+        # MEMORIA CHAT
+
+        messaggi.extend(
+            memoria.messages[-6:]
+        )
+
+        # MESSAGGIO UTENTE
+
+        messaggi.append(
+
+            HumanMessage(
+                content=request.text
+            )
+        )
+
+        # =====================================================
+        # TOOL BINDING
+        # =====================================================
+
+        llm_tools = llm.bind_tools(
+            list(tools.values())
+        )
+
+        # =====================================================
+        # RISPOSTA MODELLO
+        # =====================================================
+
+        risposta = llm_tools.invoke(
+            messaggi
+        )
+
+        # =====================================================
+        # TOOL CALL
+        # =====================================================
+
+        if risposta.tool_calls:
+
+            messaggi.append(risposta)
+
+            for tool_call in risposta.tool_calls:
+
                 nome_tool = tool_call["name"]
-                argomenti = tool_call["args"]
-                
-                # Esegue fisicamente il tool (es. cerca su DuckDuckGo)
-                risultato_tool = mapping_tools[nome_tool].invoke(argomenti)
-                
-               # Sostituisci questo blocco nel tuo main.py:
-                prompt_riassunto = (
-                    f"L'utente ha chiesto: '{request.text}'.\n"
-                    f"Il tool '{nome_tool}' ha restituito questi dati:\n{risultato_tool}\n\n"
-                    "REGOLE RIGIDE PER LA RISPOSTA:\n"
-                    "1. Genera una risposta finale esaustiva, amichevole e in italiano.\n"
-                    "2. IMPORTANTE: Se i dati del tool sono scarsi, vuoti o non menzionano il gioco, NON farti influenzare! "
-                    "Usa subito la tua conoscenza interna per rispondere correttamente (es. se riconosci una citazione famosa come quella di Ezio Auditore in Assassin's Creed, dillo subito!).\n"
-                    "3. Mantieni lo stile di Pixel (gamer su Discord), sii diretto e non inventare mai fake-news o personaggi inesistenti."
+
+                args = tool_call["args"]
+
+                # AGGIUNGE USER_ID AUTOMATICO
+
+                if nome_tool == "aggiorna_preferenze_database":
+
+                    args["user_id"] = request.user_id
+
+                # ESEGUE TOOL
+
+                risultato = tools[
+                    nome_tool
+                ].invoke(args)
+
+                # AGGIUNGE RISULTATO TOOL
+
+                messaggi.append(
+
+                    ToolMessage(
+                        tool_call_id=tool_call["id"],
+                        content=str(risultato)
+                    )
                 )
-                
-                # Usiamo lo stesso modello stabile 8B per l'output finale
-                llm_finale = ChatGroq(
-                    model="llama-3.1-8b-instant", 
-                    groq_api_key=os.getenv("GROQ_API_KEY"), 
-                    temperature=0.4
-                )
-                
-                risposta_finale = llm_finale.invoke(prompt_riassunto)
-                
-                return {"risposta": risposta_finale.content}
-        
-        # 4. Risposta diretta senza l'uso dei tool
-        return {"risposta": risposta_modello.content}
+
+            # RISPOSTA FINALE
+
+            risposta_finale = llm.invoke(
+                messaggi
+            )
+
+            testo_finale = risposta_finale.content
+
+        else:
+
+            testo_finale = risposta.content
+
+        # =====================================================
+        # FILTRO FRASI CHATGPT
+        # =====================================================
+
+        frasi_vietate = [
+
+            "grafica incredibile",
+
+            "gameplay emozionante",
+
+            "esperienza immersiva"
+        ]
+
+        for frase in frasi_vietate:
+
+            testo_finale = testo_finale.replace(
+                frase,
+                ""
+            )
+
+        # =====================================================
+        # PULIZIA TOOL VISIBILI
+        # =====================================================
+
+        if "<function=" in testo_finale:
+
+            testo_finale = (
+                testo_finale
+                .split("<function=")[0]
+                .strip()
+            )
+
+        if "tool_calls" in testo_finale:
+
+            testo_finale = (
+                testo_finale
+                .replace("tool_calls", "")
+            )
+
+        # =====================================================
+        # SALVA MEMORIA
+        # =====================================================
+
+        memoria.add_message(
+
+            HumanMessage(
+                content=request.text
+            )
+        )
+
+        memoria.add_message(
+
+            AIMessage(
+                content=testo_finale
+            )
+        )
+
+        # =====================================================
+        # RISPOSTA API
+        # =====================================================
+
+        return {
+
+            "risposta": testo_finale
+        }
 
     except Exception as e:
-        print(f"[-] Errore server: {str(e)}")
-        return {"risposta": f"Pixel ha avuto un piccolo glitch: {str(e)}"}
+
+        print(
+            "ERRORE SERVER:",
+            str(e)
+        )
+
+        return {
+
+            "risposta":
+                f"Pixel è crashato 💀 ({str(e)})"
+        }
